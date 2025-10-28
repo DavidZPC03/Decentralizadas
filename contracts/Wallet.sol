@@ -14,16 +14,12 @@ contract MultiSignPaymentWallet {
     }
     Transaction[] public transactions;
 
-    // --- NUEVO: Struct para guardar los detalles de la aprobación ---
     struct Approval {
         address approver;
         uint timestamp;
     }
 
-    // --- MODIFICADO: Mapeo para chequear si alguien ya aprobó ---
     mapping(uint => mapping(address => bool)) public hasApproved;
-
-    // --- NUEVO: Mapeo para guardar la lista de detalles de aprobación por txId ---
     mapping(uint => Approval[]) public approvalDetails;
     
     address[] public payees;
@@ -42,6 +38,21 @@ contract MultiSignPaymentWallet {
     event TransactionApproved(uint indexed txId, address indexed owner);
     event TransactionExecuted(uint indexed txId, address indexed to, uint amount);
     event PaymentReleased(address indexed payee, uint amount);
+
+    struct Product {
+        uint id;
+        string name;
+        uint price;
+        address seller;
+        bool active;
+    }
+
+    uint public nextProductId;
+    mapping(uint => Product) public products;
+    mapping(address => uint[]) public purchases;
+
+    event ProductAdded(uint id, string name, uint price, address seller);
+    event ProductPurchased(uint id, address buyer, uint price);
 
     modifier onlyOwner() {
         require(isOwner[msg.sender], "Not an owner");
@@ -70,6 +81,8 @@ contract MultiSignPaymentWallet {
             shares[_payees[i]] = _shares[i];
             totalShares += _shares[i];
         }
+
+        nextProductId = 0;
     }
 
     function deposit() public payable {
@@ -89,7 +102,6 @@ contract MultiSignPaymentWallet {
         emit TransactionSubmitted(transactions.length - 1, _to, amount);
     }
 
-    // --- FUNCIÓN COMPLETAMENTE MODIFICADA ---
     function approveTransaction(uint txId) external onlyOwner {
         Transaction storage transaction = transactions[txId];
         require(!transaction.executed, "Tx already executed");
@@ -147,5 +159,41 @@ contract MultiSignPaymentWallet {
 
     function getBalance() public view returns (uint) {
         return address(this).balance;
+    }
+
+    function addProduct(string memory _name, uint _price) external onlyOwner {
+        require(_price > 0, "El precio debe ser mayor a 0");
+        uint productId = nextProductId++;
+        products[productId] = Product({
+            id: productId,
+            name: _name,
+            price: _price,
+            seller: msg.sender,
+            active: true
+        });
+        emit ProductAdded(productId, _name, _price, msg.sender);
+    }
+
+    function buyProduct(uint _productId) external payable nonReentrant {
+        Product storage product = products[_productId];
+        require(product.active, "Producto no disponible");
+        require(msg.value == product.price, "Monto incorrecto");
+
+        emit Deposit(msg.sender, msg.value);
+
+        purchases[msg.sender].push(_productId);
+        emit ProductPurchased(_productId, msg.sender, product.price);
+    }
+
+    function disableProduct(uint _productId) external onlyOwner {
+        products[_productId].active = false;
+    }
+
+    function getAllProducts() external view returns (Product[] memory) {
+        Product[] memory all = new Product[](nextProductId);
+        for (uint i = 0; i < nextProductId; i++) {
+            all[i] = products[i];
+        }
+        return all;
     }
 }

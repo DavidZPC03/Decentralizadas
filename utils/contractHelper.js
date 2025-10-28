@@ -1,56 +1,62 @@
 const { ethers } = require('ethers');
-// --- CAMBIO CLAVE: Importamos getProvider en lugar de la variable provider ---
-const { getWallet, getProvider } = require('./AccountManager');
+const { getWallet, getProvider } = require('./accountManager');
 
-function getContract(contractAddress, abi) {
-    // Usamos la función para obtener el provider.
-    return new ethers.Contract(contractAddress, abi, getProvider());
+function accountToIndex(account) {
+    const index = parseInt(account) - 1;
+    if (index < 0 || index > 1) {
+        console.error(`Índice de cuenta inválido: ${account}. Debe ser 1 o 2.`);
+        throw new Error(`Índice de cuenta inválido: ${account}. Debe ser 1 o 2.`);
+    }
+    return index;
 }
 
-async function createTransaction(contractAddress, abi, methodName, params, account) {
-    const signer = getWallet(account);
-    if (!signer) {
-        throw new Error(`No se pudo obtener la wallet para la cuenta ${account}.`);
-    }
+async function createTransaction(contractAddress, abi, method, params = [], account) {
+    const index = accountToIndex(account);
+    const signer = getWallet(index);
 
-    const contractWithSigner = new ethers.Contract(contractAddress, abi, signer);
-    
-    console.log(`Ejecutando '${methodName}' desde la cuenta ${account} (${signer.address})`);
-    
-    const tx = await contractWithSigner[methodName](...params);
-    
-    console.log(`Transacción enviada. Hash: ${tx.hash}`);
-    console.log(`Ver en Etherscan: https://sepolia.etherscan.io/tx/${tx.hash}`);
-    
-    const receipt = await tx.wait();
-    console.log("Transacción confirmada en el bloque:", receipt.blockNumber);
-    
-    return receipt;
+    const contract = new ethers.Contract(contractAddress, abi, signer);
+
+    console.log(`Ejecutando ${method} desde la cuenta ${signer.address}...`);
+
+    try {
+        const tx = await contract[method](...params);
+        const receipt = await tx.wait();
+        console.log(`Transacción ${method} minada: ${receipt.hash}`);
+        return receipt;
+    } catch (error) {
+        console.error(`Error en createTransaction (${method}):`, error.message);
+        throw error;
+    }
 }
 
 async function depositToContract(contractAddress, abi, amountInEther, account) {
-    const signer = getWallet(account);
-    if (!signer) {
-        throw new Error(`No se pudo obtener la wallet para la cuenta ${account}.`);
+    const index = accountToIndex(account);
+    const signer = getWallet(index);
+
+    const parsedAmount = ethers.parseEther(amountInEther.toString());
+
+    try {
+        const tx = await signer.sendTransaction({
+            to: contractAddress,
+            value: parsedAmount
+        });
+        const receipt = await tx.wait();
+        console.log(`Depósito de ${amountInEther} ETH minado: ${receipt.hash}`);
+        return receipt;
+    } catch (error) {
+        console.error('Error en depositToContract:', error.message);
+        throw error;
     }
-    
-    const contractWithSigner = new ethers.Contract(contractAddress, abi, signer);
+}
 
-    console.log(`Depositando ${amountInEther} ETH desde la cuenta ${account} (${signer.address})`);
-
-    const tx = await contractWithSigner.deposit({ value: ethers.parseEther(String(amountInEther)) });
-
-    console.log(`Depósito enviado. Hash: ${tx.hash}`);
-    console.log(`Ver en Etherscan: https://sepolia.etherscan.io/tx/${tx.hash}`);
-
-    const receipt = await tx.wait();
-    console.log("Depósito confirmado en el bloque:", receipt.blockNumber);
-
-    return receipt;
+function getContract(contractAddress, abi) {
+    const provider = getProvider();
+    return new ethers.Contract(contractAddress, abi, provider);
 }
 
 module.exports = {
-    getContract,
     createTransaction,
-    depositToContract
+    depositToContract,
+    getContract,
+    accountToIndex
 };
