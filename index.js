@@ -10,6 +10,7 @@ app.use('/wallet', require('./routes/wallet'));
 
 app.use('/approvals', require('./routes/approvals'));
 app.use('/products', require('./routes/products'));
+app.use('/examen', require('./routes/examen'));
 
 app.listen(port, () => {
     console.log(`Server at port ${port}`);
