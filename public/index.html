@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tienda DApp</title>
+    <script src="https://cdn.ethers.io/lib/ethers-5.7.umd.min.js" type="application/javascript"></script>
+    <style>
+        /* Estilos básicos */
+        body { font-family: sans-serif; }
+        .product-card { border: 1px solid #ccc; padding: 15px; margin: 10px; border-radius: 8px; }
+        .buy-btn { background-color: #4CAF50; color: white; padding: 10px 15px; border: none; cursor: pointer; }
+        .buy-btn:disabled { background-color: #ccc; }
+        #wallet-info { margin-bottom: 20px; padding: 10px; background-color: #f0f0f0; }
+    </style>
+</head>
+<body>
+
+    <h1>Bienvenido a la Tienda Descentralizada</h1>
+
+    <div id="wallet-info">
+        <button id="connect-btn">Conectar Wallet</button>
+        <span id="account-display"></span>
+    </div>
+
+    <h2>Productos Disponibles</h2>
+    <div id="products-list">Cargando productos...</div>
+
+    <script>
+        const CONTRACT_ADDRESS = "0x5633B566E068DCA60Feb83cCbee4b1e52f035dC8"; // Tu dirección
+        // ABI Mínimo necesario para comprar desde el frontend
+        const CONTRACT_ABI = [
+            "function buyProduct(uint256 _productId) external payable",
+            "function getAllProducts() external view returns (tuple(uint256 id, string name, uint256 price, address seller, bool active)[])"
+        ];
+
+        let provider, signer, userAccount;
+
+        const connectBtn = document.getElementById('connect-btn');
+        const accountDisplay = document.getElementById('account-display');
+        const productsList = document.getElementById('products-list');
+
+        // 1. Conectar MetaMask
+        async function connectWallet() {
+            if (window.ethereum) {
+                try {
+                    provider = new ethers.providers.Web3Provider(window.ethereum);
+                    await provider.send("eth_requestAccounts", []);
+                    signer = provider.getSigner();
+                    userAccount = await signer.getAddress();
+                    
+                    accountDisplay.textContent = `Conectado: ${userAccount.substring(0, 6)}...${userAccount.substring(38)}`;
+                    connectBtn.style.display = 'none';
+                    loadProducts(); // Recargar productos para habilitar botones de compra
+                } catch (error) {
+                    console.error("Error al conectar:", error);
+                    alert("Error al conectar la wallet.");
+                }
+            } else {
+                alert("¡Por favor, instala MetaMask!");
+            }
+        }
+
+        connectBtn.addEventListener('click', connectWallet);
+
+        // 2. Cargar Productos (Usando tu API o llamada directa si prefieres)
+        async function loadProducts() {
+            try {
+                // Opción A: Usar tu API (Recomendado si ya tienes el backend listo)
+                // const response = await fetch('http://localhost:3000/api/products');
+                // const products = await response.json();
+
+                // Opción B: Llamada directa al contrato (para este ejemplo rápido)
+                // Necesitamos un proveedor de lectura si no hay wallet conectada aún
+                const readProvider = provider || new ethers.providers.JsonRpcProvider("https://eth-sepolia.g.alchemy.com/v2/TU_API_KEY"); 
+                const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, readProvider);
+                const rawProducts = await contract.getAllProducts();
+                
+                const products = rawProducts.map(p => ({
+                    id: p.id.toNumber(),
+                    name: p.name,
+                    priceEth: ethers.utils.formatEther(p.price),
+                    active: p.active,
+                    seller: p.seller
+                }));
+
+                displayProducts(products);
+
+            } catch (error) {
+                console.error("Error cargando productos:", error);
+                productsList.textContent = "Error al cargar los productos.";
+            }
+        }
+
+        // 3. Mostrar Productos en el DOM
+        function displayProducts(products) {
+            productsList.innerHTML = '';
+            if (products.length === 0) {
+                productsList.innerHTML = '<p>No hay productos disponibles.</p>';
+                return;
+            }
+
+            products.forEach(product => {
+                if (!product.active) return; // No mostrar inactivos
+
+                const card = document.createElement('div');
+                card.className = 'product-card';
+                card.innerHTML = `
+                    <h3>${product.name}</h3>
+                    <p>Precio: ${product.priceEth} ETH</p>
+                    <p><small>Vendedor: ${product.seller.substring(0,6)}...</small></p>
+                    <button class="buy-btn" onclick="buyProduct(${product.id}, '${product.priceEth}')" ${!userAccount ? 'disabled' : ''}>
+                        ${userAccount ? 'Comprar' : 'Conecta tu Wallet'}
+                    </button>
+                `;
+                productsList.appendChild(card);
+            });
+        }
+
+        // 4. Función de Compra (Ejecutada por el usuario desde MetaMask)
+        window.buyProduct = async (productId, priceEth) => {
+            if (!signer) {
+                alert("Primero conecta tu wallet.");
+                return;
+            }
+
+            try {
+                const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+                const priceWei = ethers.utils.parseEther(priceEth);
+
+                alert("Confirma la transacción en MetaMask...");
+                const tx = await contract.buyProduct(productId, { value: priceWei });
+                
+                alert("Transacción enviada, esperando confirmación...");
+                await tx.wait();
+                
+                alert("¡Compra exitosa!");
+                loadProducts(); // Recargar por si algo cambió
+            } catch (error) {
+                console.error("Error en la compra:", error);
+                alert("Error al comprar: " + (error.reason || error.message));
+            }
+        };
+
+        // Cargar productos al inicio (incluso sin wallet conectada)
+        // Nota: Necesitarás un RPC público válido en la Opción B de loadProducts para que funcione sin MetaMask conectado.
+        // Si usas la Opción A (tu API), no necesitas RPC público aquí.
+        // loadProducts(); 
+
+    </script>
+</body>
+</html>
